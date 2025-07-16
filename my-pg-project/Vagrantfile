@@ -1,0 +1,19 @@
+# Vagrantfile
+Vagrant.configure("2") do |config|
+  # Qui andiamo a specificare OS da utilizzare nella VM
+  config.vm.box = "ubuntu/focal64" 
+
+  # Assegnamo un nome alla macchina
+  config.vm.hostname = "pg-server"
+  
+  # Qui specifichiamo il file di provisioning da avviare per la configurazione.
+  # Verrà eseguito lo script 'install_pg.sh' all'interno della VM.
+  config.vm.provision "shell", path: "provision/install_pg.sh" 
+  
+  # Sincronizza la directory locale 'provision' con '/tmp/provision' nella VM.
+  # Questo rende il file 'init_db.sql' accessibile allo script di installazione.
+  config.vm.synced_folder "provision", "/tmp/provision"
+
+  # La porta 5433 sul tuo host verrà inoltrata alla porta 5432 sulla VM (dove PostgreSQL è in ascolto).
+  config.vm.network "forwarded_port", guest: 5432, host: 5433
+end
