@@ -10,63 +10,72 @@ CONTAINER_IMAGE="ealen/echo-server"
 CONTAINER_NAME="echo-server"
 
 # Mappatura delle porte: Porta host:Porta container
-# La porta 8080 del tuo host (o del nodo Vagrant) sarà mappata alla porta 80 del container
 PORT_MAPPING="8080:80"
 
 # Utente SSH per connettersi alle VM Vagrant
 SSH_USER="vagrant"
 
-# Questo comando trova la chiave privata specifica del progetto Vagrant.
-# Cerca il file 'private_key' all'interno della directory '.vagrant/machines/' del progetto corrente.
-VAGRANT_SSH_KEY_NODE1=$(find .vagrant/machines/ -name "private_key" 2>/dev/null | head -n 1)
-VAGRANT_SSH_KEY_NODE2=$(find .vagrant/machines/ -name "private_key" 2>/dev/null | tail -n 1)
+# --- Dynamic Discovery of Vagrant Private Keys ---
+# Trova la chiave privata per node1
+VAGRANT_SSH_KEY_NODE1=$(find .vagrant/machines/node1/ -name "private_key" 2>/dev/null)
+# Trova la chiave privata per node2
+VAGRANT_SSH_KEY_NODE2=$(find .vagrant/machines/node2/ -name "private_key" 2>/dev/null)
 
 if [ -z "$VAGRANT_SSH_KEY_NODE1" ]; then
-    echo "Errore: Chiave SSH privata di node 1 non trovata nel progetto."
-    echo "Assicurati di eseguire lo script nella stessa directory del Vagrantfile."
+    echo "Errore: Chiave SSH privata per Node 1 non trovata nel progetto."
+    echo "Assicurati di eseguire lo script nella stessa directory del Vagrantfile e che le VM siano state avviate (vagrant up)."
     exit 1
 fi
 
 if [ -z "$VAGRANT_SSH_KEY_NODE2" ]; then
-    echo "Errore: Chiave SSH privata di Node 2 non trovata nel progetto."
-    echo "Assicurati di eseguire lo script nella stessa directory del Vagrantfile."
+    echo "Errore: Chiave SSH privata per Node 2 non trovata nel progetto."
+    echo "Assicurati di eseguire lo script nella stessa directory del Vagrantfile e che le VM siano state avviate (vagrant up)."
     exit 1
 fi
 
-# Nodo iniziale su cui avviare il container
-CURRENT_NODE_IP="$NODE1_IP" # Iniziamo con node1
-CURRENT_SSH_KEY_NODE="$VAGRANT_SSH_KEY_NODE1"
-
 # --- Funzioni di gestione Docker via SSH ---
+
+# Funzione per eseguire comandi Docker su un nodo specifico
+execute_remote_command() {
+    local node_ip=$1
+    local ssh_key=$2
+    local command_to_execute=$3
+    local success_message=$4
+    local error_message=$5
+
+    # L'opzione -o StrictHostKeyChecking=no è usata per evitare prompt di conferma all'aggiunta di nuove chiavi host.
+    # L'opzione -q per ssh rende l'output più silenzioso per i comandi remoti.
+    ssh -q -i "$ssh_key" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "$command_to_execute"
+    if [ $? -eq 0 ]; then
+        echo " ${success_message}"
+    else
+        echo " ${error_message}"
+    fi
+}
 
 # Funzione per avviare il container su un nodo specificato
 run_container() {
     local node_ip=$1
+    local ssh_key=$2
     echo " Tentativo di avviare il container '$CONTAINER_NAME' su $node_ip..."
-    # Prima, assicurati che il container non sia già in esecuzione o bloccato
-    ssh -i "$2" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "docker stop $CONTAINER_NAME 2>/dev/null || true"
-    ssh -i "$2" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "docker rm $CONTAINER_NAME 2>/dev/null || true"
-    # Avvia il container in background (-d) e mappa le porte (-p)
-    ssh -i "$2" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "docker run -d --name $CONTAINER_NAME -p $PORT_MAPPING $CONTAINER_IMAGE"
-
-    if [ $? -eq 0 ]; then
-        echo " Container '$CONTAINER_NAME' avviato con successo su $node_ip."
-    else
-        echo " Errore nell'avvio del container '$CONTAINER_NAME' su $node_ip."
-    fi
+    # Questo comando combina stop, rm e run in un'unica esecuzione remota
+    # Utilizziamo true per non far fallire l'intero comando, dal momento che se lo stop non avviene con successo
+    # si avrà un'uscita con errore. Inoltre, aggiungendo 2>/dev/null/ ignoriamo l'errore standard del primo comando.
+    execute_remote_command "$node_ip" "$ssh_key" \
+        "docker stop $CONTAINER_NAME 2>/dev/null || true && docker rm $CONTAINER_NAME 2>/dev/null || true && docker run -d --name $CONTAINER_NAME -p $PORT_MAPPING $CONTAINER_IMAGE" \
+        "Container '$CONTAINER_NAME' avviato con successo su $node_ip." \
+        "Errore nell'avvio del container '$CONTAINER_NAME' su $node_ip."
 }
 
 # Funzione per fermare e rimuovere il container su un nodo specificato
 stop_container() {
     local node_ip=$1
+    local ssh_key=$2
     echo " Tentativo di fermare e rimuovere il container '$CONTAINER_NAME' su $node_ip..."
-    # Ferma e rimuove il container. '|| true' evita che lo script fallisca se il container non è in esecuzione
-    ssh -i "$2" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME"
-    if [ $? -eq 0 ]; then
-        echo " Container '$CONTAINER_NAME' fermato e rimosso con successo su $node_ip."
-    else
-        echo " Il container '$CONTAINER_NAME' non era in esecuzione o si è verificato un errore su $node_ip."
-    fi
+    execute_remote_command "$node_ip" "$ssh_key" \
+        "docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME" \
+        "Container '$CONTAINER_NAME' fermato e rimosso con successo su $node_ip." \
+        "Il container '$CONTAINER_NAME' non era in esecuzione o si è verificato un errore su $node_ip."
 }
 
 # --- Loop di Migrazione ---
@@ -75,34 +84,38 @@ echo "--- Inizio del processo di migrazione 'ping-pong' ---"
 echo "Il container '${CONTAINER_NAME}' (${CONTAINER_IMAGE}) migrerà ogni 60 secondi."
 echo "Sarà accessibile sulla porta ${PORT_MAPPING%:*}/TCP di uno dei due nodi."
 
+# Nodo iniziale su cui avviare il container
+CURRENT_NODE_IP="$NODE2_IP" # Iniziamo con node1
+CURRENT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE2" # La chiave per il nodo corrente
+
+NEXT_NODE_IP="$NODE1_IP" # Nodo in avvio
+NEXT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1" # Chiave per il nodo in avvio
+
 while true; do
     echo "" # Riga vuota per maggiore leggibilità
     echo "--- $(date '+%Y-%m-%d %H:%M:%S') ---"
 
-    # Determina il prossimo nodo per la migrazione
+    # Determina il prossimo nodo e la chiave SSH associata
     if [ "$CURRENT_NODE_IP" == "$NODE1_IP" ]; then
         NEXT_NODE_IP="$NODE2_IP"
-        NEXT_SSH_KEY_NODE="$VAGRANT_SSH_KEY_NODE2"
+        NEXT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE2"
     else
         NEXT_NODE_IP="$NODE1_IP"
-        NEXT_SSH_KEY_NODE="$VAGRANT_SSH_KEY_NODE1"
+        NEXT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1"
     fi
 
-    echo " Nodo corrente: $CURRENT_NODE_IP, Prossimo nodo: $NEXT_NODE_IP"
-
-    echo " Pwd chiave nodo $CURRENT_NODE_IP: $CURRENT_SSH_KEY_NODE "
-    echo " Pwd chiave nodo $NEXT_NODE_IP: $NEXT_SSH_KEY_NODE "
+    echo " Nodo in arresto: $CURRENT_NODE_IP, Prossimo in avvio: $NEXT_NODE_IP"
 
     # 1. Ferma e rimuovi il container dal nodo corrente
-    stop_container "$CURRENT_NODE_IP" "$CURRENT_SSH_KEY_NODE"
+    stop_container "$CURRENT_NODE_IP" "$CURRENT_SSH_KEY_FOR_NODE"
 
     # 2. Avvia il container sul prossimo nodo
-    run_container "$NEXT_NODE_IP" "$NEXT_SSH_KEY_NODE"
+    run_container "$NEXT_NODE_IP" "$NEXT_SSH_KEY_FOR_NODE"
 
-    # Aggiorna il nodo corrente per il ciclo successivo
+    # Aggiorna il nodo corrente e la sua chiave per il ciclo successivo
     CURRENT_NODE_IP="$NEXT_NODE_IP"
-    CURRENT_SSH_KEY_NODE="$NEXT_SSH_KEY_NODE"
+    CURRENT_SSH_KEY_FOR_NODE="$NEXT_SSH_KEY_FOR_NODE"
 
     echo " Attesa di 60 secondi prima della prossima migrazione..."
-    sleep 60
+    sleep 10
 done
