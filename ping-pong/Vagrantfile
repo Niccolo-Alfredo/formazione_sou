@@ -6,8 +6,8 @@ Vagrant.configure("2") do |config|
     node.vm.hostname = "node1"     # Nome hostname per la VM
     node.vm.network "private_network", ip: "192.168.56.101" # IP statico sulla rete privata
     node.vm.provider "virtualbox" do |vb|
-      vb.memory = "1024" # 2GB di RAM
-      vb.cpus = "1"      # 2 Core CPU
+      vb.memory = "1024" # 1GB di RAM
+      vb.cpus = "1"      # 1 Core CPU
     end
     # Qui specifichiamo il file di provisioning da avviare per la configurazione.
     # Verrà eseguito lo script 'install_pg.sh' all'interno della VM.
@@ -20,8 +20,8 @@ Vagrant.configure("2") do |config|
     node.vm.hostname = "node2"     # Nome hostname per la VM
     node.vm.network "private_network", ip: "192.168.56.102" # IP statico sulla rete privata
     node.vm.provider "virtualbox" do |vb|
-      vb.memory = "1024" # 2GB di RAM
-      vb.cpus = "1"      # 2 Core CPU
+      vb.memory = "1024" # 1GB di RAM
+      vb.cpus = "1"      # 1 Core CPU
     end
     # Qui specifichiamo il file di provisioning da avviare per la configurazione.
     # Verrà eseguito lo script 'install_pg.sh' all'interno della VM.
