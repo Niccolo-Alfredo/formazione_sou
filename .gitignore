@@ -1,3 +1,6 @@
+
+# File di configurazione di VM vagrant
 .vagrant/
 
+# File del db postgreSQL
 .DS_Store
