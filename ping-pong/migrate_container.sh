@@ -78,18 +78,53 @@ stop_container() {
         "Il container '$CONTAINER_NAME' non era in esecuzione o si è verificato un errore su $node_ip."
 }
 
+# Funzione di pulizia da eseguire all'uscita dello script (es. con Ctrl+C)
+cleanup() {
+    echo "" # Nuova riga per chiarezza nell'output
+    echo "--- Rilevato segnale di interruzione (Ctrl+C). Avvio procedura di pulizia... ---"
+    # Controlla se CURRENT_NODE_IP è stato impostato (cioè se un container è stato avviato almeno una volta)
+    if [ -n "$CURRENT_NODE_IP" ] && [ -n "$CURRENT_SSH_KEY_FOR_NODE" ]; then
+        echo " Tentativo di arrestare e rimuovere il container '$CONTAINER_NAME' dal nodo $CURRENT_NODE_IP..."
+        # Usa la funzione stop_container, ma solo per il nodo *corrente* su cui dovrebbe trovarsi il container.
+        execute_remote_command "$CURRENT_NODE_IP" "$CURRENT_SSH_KEY_FOR_NODE" \
+            "docker stop $CONTAINER_NAME 2>/dev/null || true && docker rm $CONTAINER_NAME 2>/dev/null || true" \
+            "Container '$CONTAINER_NAME' fermato e rimosso con successo da $CURRENT_NODE_IP." \
+            "Il container '$CONTAINER_NAME' non era attivo su $CURRENT_NODE_IP o si è verificato un errore."
+    else
+        echo " Nessun container attivo noto per la pulizia o lo script non ha ancora avviato il container."
+    fi
+    echo "--- Pulizia completata. Uscita dallo script. ---"
+    exit 0 # Esci con successo dopo la pulizia
+}
+
+# Imposta il trap: quando viene ricevuto il segnale SIGINT (da Ctrl+C), esegui la funzione cleanup.
+trap cleanup SIGINT
+
 # --- Loop di Migrazione ---
 
 echo "--- Inizio del processo di migrazione 'ping-pong' ---"
-echo "Il container '${CONTAINER_NAME}' (${CONTAINER_IMAGE}) migrerà ogni 60 secondi."
+echo "Il container '${CONTAINER_NAME}' (${CONTAINER_IMAGE}) migrerà ogni $SLEEP_TIME secondi."
 echo "Sarà accessibile sulla porta ${PORT_MAPPING%:*}/TCP di uno dei due nodi."
 
-# Nodo iniziale su cui avviare il container
-CURRENT_NODE_IP="$NODE2_IP" # Iniziamo con node1
-CURRENT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE2" # La chiave per il nodo corrente
+# --- Avvio Iniziale Diretto del Container ---
+# Poiché assumiamo che non ci siano container Docker in esecuzione all'avvio dello script,
+# avviamo direttamente il container sul nodo iniziale designato (NODE1_IP).
 
-NEXT_NODE_IP="$NODE1_IP" # Nodo in avvio
-NEXT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1" # Chiave per il nodo in avvio
+CURRENT_NODE_IP="$NODE1_IP" # Inizialmente, il container sarà avviato su questo nodo.
+CURRENT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1" # Chiave associata al nodo iniziale.
+
+SLEEP_TIME=10 # Tempo di attesa del ping-pong
+
+echo ""
+echo "--- Avvio iniziale del container sul nodo $CURRENT_NODE_IP (nessun Docker in esecuzione previsto) ---"
+run_container "$CURRENT_NODE_IP" "$CURRENT_SSH_KEY_FOR_NODE"
+
+echo " Attesa di $SLEEP_TIME secondi prima della prima migrazione del ciclo..."
+sleep "$SLEEP_TIME"
+
+# Primo scambio dei nodi dopo il primo avvio sul nodo 1
+CURRENT_NODE_IP="$NODE1_IP" # Nodo in arresto
+CURRENT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1" # La chiave per il nodo in arresto
 
 while true; do
     echo "" # Riga vuota per maggiore leggibilità
@@ -116,6 +151,6 @@ while true; do
     CURRENT_NODE_IP="$NEXT_NODE_IP"
     CURRENT_SSH_KEY_FOR_NODE="$NEXT_SSH_KEY_FOR_NODE"
 
-    echo " Attesa di 60 secondi prima della prossima migrazione..."
-    sleep 10
+    echo " Attesa di $SLEEP_TIME secondi prima della prossima migrazione..."
+    sleep "$SLEEP_TIME"
 done
