@@ -12,6 +12,10 @@ Vagrant.configure("2") do |config|
     # Qui specifichiamo il file di provisioning da avviare per la configurazione.
     # Verrà eseguito lo script 'install_pg.sh' all'interno della VM.
     node.vm.provision "shell", path: "provision/node_1.sh" 
+
+    # Provisioning per rendere control.sh eseguibile sulla VM
+    # La cartella di progetto dell'host è montata su /vagrant nella VM.
+    node.vm.provision "shell", inline: "chmod +x /vagrant/control.sh"
   end
 
   # Definisci la seconda macchina virtuale (nodo 2)
@@ -26,5 +30,9 @@ Vagrant.configure("2") do |config|
     # Qui specifichiamo il file di provisioning da avviare per la configurazione.
     # Verrà eseguito lo script 'install_pg.sh' all'interno della VM.
     node.vm.provision "shell", path: "provision/node_2.sh" 
+
+    # Provisioning per rendere control.sh eseguibile sulla VM
+    # La cartella di progetto dell'host è montata su /vagrant nella VM.
+    node.vm.provision "shell", inline: "chmod +x /vagrant/control.sh"
   end
 end

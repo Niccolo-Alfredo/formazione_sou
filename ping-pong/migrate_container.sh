@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# --- Colori ANSI ---
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+MAGENTA='\033[35m'
+CYAN='\033[36m'
+BOLD='\033[1m'
+RESET='\033[0m' # Resetta il colore al default del terminale
+
 # --- Configurazione ---
 # Indirizzi IP dei tuoi nodi Vagrant
 NODE1_IP="192.168.56.101"
@@ -24,9 +34,13 @@ SLEEP_TIME=10
 NODE1_RAN_FILE="/tmp/${CONTAINER_NAME}_${NODE1_IP}_ran.flag"
 NODE2_RAN_FILE="/tmp/${CONTAINER_NAME}_${NODE2_IP}_ran.flag"
 
-# Assicuriamoci che i file di flag non esistano all'avvio pulito dello script
-# Questo è importante per il primo run del container.
-rm -f "$NODE1_RAN_FILE" "$NODE2_RAN_FILE"
+# --- Nuovo file segnale di terminazione ---
+# Questo file verrà creato nella directory condivisa di Vagrant sull'HOST.
+# Nelle VM sarà accessibile tramite /vagrant/terminate_vms_flag.signal
+# Assicurati che questo nome non vada in conflitto con altri file nel tuo progetto.
+TERMINATE_FLAG_FILENAME="terminate_vms_flag.signal" # Solo il nome del file
+TERMINATE_FLAG_PATH_ON_HOST="$(pwd)/${TERMINATE_FLAG_FILENAME}" # Percorso assoluto sull'host
+TERMINATE_FLAG_PATH_ON_VM="/vagrant/${TERMINATE_FLAG_FILENAME}" # Percorso assoluto all'interno della VM
 
 # --- Individuazione Dinamica delle Chiavi Private SSH di Vagrant ---
 # Ricerca la chiave privata specifica per ogni nodo all'interno delle loro directory Vagrant.
@@ -35,12 +49,12 @@ VAGRANT_SSH_KEY_NODE2=$(find .vagrant/machines/node2/ -name "private_key" 2>/dev
 
 # Verifiche di esistenza delle chiavi SSH
 if [ -z "$VAGRANT_SSH_KEY_NODE1" ]; then
-    echo "Errore: Chiave SSH privata per Node 1 non trovata. Assicurati che il Vagrantfile sia nella directory corrente e che le VM siano state avviate (vagrant up)."
+    echo -e "${RED}Errore: Chiave SSH privata per Node 1 non trovata. Assicurati che il Vagrantfile sia nella directory corrente e che le VM siano state avviate (vagrant up).${RESET}"
     exit 1
 fi
 
 if [ -z "$VAGRANT_SSH_KEY_NODE2" ]; then
-    echo "Errore: Chiave SSH privata per Node 2 non trovata. Assicurati che il Vagrantfile sia nella directory corrente e che le VM siano state avviate (vagrant up)."
+    echo -e "${RED}Errore: Chiave SSH privata per Node 2 non trovata. Assicurati che il Vagrantfile sia nella directory corrente e che le VM siano state avviate (vagrant up).${RESET}"
     exit 1
 fi
 
@@ -59,9 +73,9 @@ execute_remote_command() {
     # L'opzione -q per ssh rende l'output più silenzioso per i comandi remoti.
     ssh -q -i "$ssh_key" -o StrictHostKeyChecking=no "$SSH_USER"@"$node_ip" "$command_to_execute"
     if [ $? -eq 0 ]; then
-        echo " ${success_message}"
+        echo -e "${GREEN} ${success_message}${RESET}"
     else
-        echo " ${error_message}"
+        echo -e "${RED} ${error_message}${RESET}"
     fi
 }
 
@@ -71,7 +85,7 @@ run_or_start_container() {
     local node_ran_flag_file=$3 # Percorso al file flag per questo nodo
 
     echo ""
-    echo " Tentativo di avviare/riavviare il container '$CONTAINER_NAME' su $node_ip..."
+    echo -e "${CYAN} Tentativo di avviare/riavviare il container '$CONTAINER_NAME' su $node_ip...${RESET}"
 
     if [ ! -f "$node_ran_flag_file" ]; then
         # Se il flag file NON esiste, significa che 'docker run' non è mai stato eseguito su questo nodo.
@@ -97,7 +111,7 @@ stop_container() {
     local ssh_key=$2
 
     echo ""
-    echo " Tentativo di fermare il container '$CONTAINER_NAME' su $node_ip..."
+    echo -e "${YELLOW} Tentativo di fermare il container '$CONTAINER_NAME' su $node_ip...${RESET}"
     # Non usiamo docker rm qui, solo stop. Aggiungiamo || true per robustezza
     execute_remote_command "$node_ip" "$ssh_key" \
         "docker stop $CONTAINER_NAME > /dev/null 2>&1|| true" \
@@ -108,31 +122,44 @@ stop_container() {
 # Funzione di pulizia da eseguire all'uscita dello script (es. con Ctrl+C)
 cleanup() {
     echo ""
-    echo "--- Rilevato segnale di interruzione (Ctrl+C). Avvio procedura di pulizia... ---"
+    echo -e "${BOLD}${RED}--- Rilevato segnale di interruzione (Ctrl+C). Avvio procedura di pulizia... ---${RESET}"
     
     # Tentativo di fermare e rimuovere il container da ENTRAMBI i nodi
     # Usiamo execute_remote_command con comandi diretti per bypassare le funzioni stop/run modificate
     
     echo ""
-    echo " Tentativo di pulire il container '$CONTAINER_NAME' da $NODE1_IP..."
+    echo -e "${YELLOW} Tentativo di pulire il container '$CONTAINER_NAME' da $NODE1_IP...${RESET}"
     execute_remote_command "$NODE1_IP" "$VAGRANT_SSH_KEY_NODE1" \
         "docker stop $CONTAINER_NAME > /dev/null 2>&1 || true && docker rm $CONTAINER_NAME > /dev/null 2>&1 || true" \
         "Container '$CONTAINER_NAME' pulito con successo da $NODE1_IP." \
         "Nessun container '$CONTAINER_NAME' su $NODE1_IP o errore durante la pulizia."
 
     echo ""
-    echo " Tentativo di pulire il container '$CONTAINER_NAME' da $NODE2_IP..."
+    echo -e "${YELLOW} Tentativo di pulire il container '$CONTAINER_NAME' da $NODE2_IP...${RESET}"
     execute_remote_command "$NODE2_IP" "$VAGRANT_SSH_KEY_NODE2" \
         "docker stop $CONTAINER_NAME > /dev/null 2>&1 || true && docker rm $CONTAINER_NAME > /dev/null 2>&1|| true" \
         "Container '$CONTAINER_NAME' pulito con successo da $NODE2_IP." \
         "Nessun container '$CONTAINER_NAME' su $NODE2_IP o errore durante la pulizia."
-    
+
+    # --- Creazione del file segnale di terminazione sull'host ---
+    # Questo file sarà nella directory di esecuzione dello script,
+    # che è la directory condivisa /vagrant per le VM.
+    echo ""
+    touch "${TERMINATE_FLAG_PATH_ON_HOST}"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}File segnale di terminazione creato con successo.${RESET}"
+    else
+        echo -e "${RED}Errore nella creazione del file segnale di terminazione.${RESET}"
+    fi
+
+    sleep 2
+
     # Rimuovi i file di flag locali
     echo ""
-    rm -f "$NODE1_RAN_FILE" "$NODE2_RAN_FILE"
-    echo " File di stato locali rimossi."
+    rm -f "$NODE1_RAN_FILE" "$NODE2_RAN_FILE" "$TERMINATE_FLAG_PATH_ON_HOST"
+    echo -e "${GREEN}--- File di stato locali rimossi. ---${RESET}"
 
-    echo "--- Pulizia completata. Uscita dallo script. ---"
+    echo -e "${BOLD}${RED}--- Pulizia completata. Uscita dallo script. ---${RESET}"
     exit 0 # Questo termina l'intero script.
 }
 
@@ -141,9 +168,11 @@ trap cleanup SIGINT
 
 # --- Loop di Migrazione ---
 
-echo "--- Inizio del processo di migrazione 'ping-pong' ---"
-echo "Il container '${CONTAINER_NAME}' (${CONTAINER_IMAGE}) migrerà ogni $SLEEP_TIME secondi."
-echo "Sarà accessibile sulla porta ${PORT_MAPPING%:*}/TCP di uno dei due nodi."
+echo -e "${BOLD}${MAGENTA}--- Inizio del processo di migrazione 'ping-pong' ---${RESET}"
+
+echo ""
+echo -e "${BLUE}Il container '${CONTAINER_NAME}' (${CONTAINER_IMAGE}) migrerà ogni $SLEEP_TIME secondi.${RESET}"
+echo -e "${BLUE}Sarà accessibile sulla porta ${PORT_MAPPING%:*}/TCP di uno dei due nodi.${RESET}"
 
 # --- Avvio Iniziale Diretto del Container ---
 # Poiché assumiamo che non ci siano container Docker in esecuzione all'avvio dello script,
@@ -155,16 +184,16 @@ CURRENT_NODE_IP="$NODE1_IP"
 CURRENT_SSH_KEY_FOR_NODE="$VAGRANT_SSH_KEY_NODE1"
 
 echo ""
-echo "--- Avvio iniziale del container sul nodo $CURRENT_NODE_IP (nessun Docker in esecuzione previsto) ---"
+echo -e "${BOLD}${CYAN}--- Avvio iniziale del container sul nodo $CURRENT_NODE_IP (nessun Docker in esecuzione previsto) ---${RESET}"
 run_or_start_container "$CURRENT_NODE_IP" "$CURRENT_SSH_KEY_FOR_NODE" "$NODE1_RAN_FILE"
 
 echo ""
-echo " Attesa di $SLEEP_TIME secondi prima della prima migrazione del ciclo..."
+echo -e "${BLUE} Attesa di $SLEEP_TIME secondi prima della prima migrazione del ciclo...${RESET}"
 sleep "$SLEEP_TIME"
 
 while true; do
     echo "" # Riga vuota per maggiore leggibilità
-    echo "--- $(date '+%Y-%m-%d %H:%M:%S') ---"
+    echo -e "${BOLD}${MAGENTA}--- $(date '+%Y-%m-%d %H:%M:%S') ---${RESET}"
 
     NODE_TO_STOP="$CURRENT_NODE_IP" # Il nodo su cui il container è attualmente in esecuzione.
     KEY_TO_STOP="$CURRENT_SSH_KEY_FOR_NODE" # La chiave per il nodo corrente.
@@ -187,7 +216,7 @@ while true; do
         FLAG_TO_START="$NODE1_RAN_FILE"
     fi
 
-    echo " Arresto nel nodo: $NODE_TO_STOP, Riavvio nel nodo: $NODE_TO_START"
+    echo -e "${CYAN} Arresto nel nodo: $NODE_TO_STOP, Riavvio nel nodo: $NODE_TO_START${RESET}"
 
     # 1. Ferma il container dal nodo corrente (senza rimuoverlo)
     stop_container "$NODE_TO_STOP" "$KEY_TO_STOP"
@@ -200,6 +229,6 @@ while true; do
     CURRENT_SSH_KEY_FOR_NODE="$KEY_TO_START"
 
     echo ""
-    echo " Attesa di $SLEEP_TIME secondi prima della prossima migrazione..."
+    echo -e "${BLUE} Attesa di $SLEEP_TIME secondi prima della prossima migrazione...${RESET}"
     sleep "$SLEEP_TIME"
 done
