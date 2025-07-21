@@ -12,11 +12,14 @@ Questo progetto è un esempio pratico che dimostra come utilizzare **Vagrant** p
 ---
 
 ## 🧱 Struttura del progetto
+
 ```
 .
 ├── Vagrantfile          # Configurazione della VM
-├── install\_pg.sh        # Script di provisioning per installare e configurare PostgreSQL
-└── init\_db.sql          # Script SQL per creare e popolare il database
+├── 📖 README.md                      # Questa documentazione
+└──  provision/                       # Directory di provision
+        ├── install\_pg.sh        # Script di provisioning per installare e configurare PostgreSQL
+        └── init\_db.sql          # Script SQL per creare e popolare il database
 
 ````
 
