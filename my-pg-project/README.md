@@ -1,4 +1,3 @@
-```markdown
 # Vagrant VM con PostgreSQL - Esempio di Database Accessibile da Host
 
 Questo progetto è un esempio pratico che dimostra come utilizzare **Vagrant** per creare rapidamente una macchina virtuale (VM) contenente un database **PostgreSQL**. L'obiettivo è simulare un database accessibile dall'host per fini didattici o di sviluppo.
@@ -13,9 +12,7 @@ Questo progetto è un esempio pratico che dimostra come utilizzare **Vagrant** p
 ---
 
 ## 🧱 Struttura del progetto
-
 ```
-
 .
 ├── Vagrantfile          # Configurazione della VM
 ├── install\_pg.sh        # Script di provisioning per installare e configurare PostgreSQL
