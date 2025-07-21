@@ -21,7 +21,7 @@ Questo progetto è un esempio pratico che dimostra come utilizzare **Vagrant** p
         ├── install\_pg.sh        # Script di provisioning per installare e configurare PostgreSQL
         └── init\_db.sql          # Script SQL per creare e popolare il database
 
-````
+```
 
 ---
 
@@ -36,9 +36,9 @@ Questo progetto è un esempio pratico che dimostra come utilizzare **Vagrant** p
 ## 🚀 Come avviare la VM
 
 1. Posizionati nella directory del progetto:
-   ```bash
-   cd nome-cartella-progetto
-````
+    ```bash
+    cd nome-cartella-progetto
+    ```
 
 2. Avvia la macchina virtuale:
 
